@@ -13,14 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-ACEAgent: Self-improving agent with Generator -> Reflector -> Curator loop.
+ACEAgent: Orchestrator for self-improving agents.
 
-Main entry point for using ACE (Agentic Context Engineering) with smolagents.
+Orchestrates the ACE (Agentic Context Engineering) loop around any smolagents agent.
+Uses existing agents (CodeAgent, ToolCallingAgent) - no inheritance, no wrappers.
 """
 
-from typing import Any, List, Optional
+from typing import Any, Optional
 import logging
 
+from ..agents import MultiStepAgent
 from .playbook import Playbook
 from .generator import ACEGenerator
 from .reflector import ACEReflector
@@ -31,79 +33,65 @@ logger = logging.getLogger(__name__)
 
 class ACEAgent:
     """
-    Self-Improving Agent with Generator -> Reflector -> Curator Loop.
+    ACE Orchestrator - coordinates self-improvement around any smolagents agent.
 
-    ACEAgent wraps the three-role ACE architecture into a single unified interface.
-    Each task execution can optionally trigger reflection and curation to improve
-    the Playbook for future tasks.
+    Uses existing smolagents agents (CodeAgent, ToolCallingAgent) directly.
+    No inheritance, no wrappers - just orchestration.
 
     Architecture:
     ```
-    ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-    │  GENERATOR  │ ──► │  REFLECTOR  │ ──► │   CURATOR   │
-    │             │     │             │     │             │
-    │ Reasoning   │     │ Evaluate &  │     │ Delta       │
-    │ Trajectories│     │ Extract     │     │ Updates     │
-    │             │     │ Insights    │     │             │
-    └─────────────┘     └─────────────┘     └─────────────┘
-          │                   │                   │
-          ▼                   ▼                   ▼
-    ┌─────────────────────────────────────────────────────┐
-    │                    PLAYBOOK                          │
-    └─────────────────────────────────────────────────────┘
+    ┌─────────────────────────────────────────────────────────────────┐
+    │                      ACEAgent (Orchestrator)                     │
+    ├─────────────────────────────────────────────────────────────────┤
+    │                                                                  │
+    │   ┌─────────────┐     ┌─────────────┐     ┌─────────────┐       │
+    │   │    AGENT    │ ──► │  REFLECTOR  │ ──► │   CURATOR   │       │
+    │   │ (CodeAgent/ │     │             │     │             │       │
+    │   │ ToolCalling)│     │ Evaluate &  │     │ Delta       │       │
+    │   │             │     │ Extract     │     │ Updates     │       │
+    │   └─────────────┘     └─────────────┘     └─────────────┘       │
+    │         │                   │                   │                │
+    │         ▼                   ▼                   ▼                │
+    │   ┌─────────────────────────────────────────────────────┐       │
+    │   │                    PLAYBOOK                          │       │
+    │   │  (injected into agent's system_prompt)               │       │
+    │   └─────────────────────────────────────────────────────┘       │
+    │                                                                  │
+    └─────────────────────────────────────────────────────────────────┘
     ```
 
     Attributes:
-        playbook: The evolving Playbook with strategies and insights
-        generator: The Generator role (task execution)
+        generator: The Generator role (task execution with playbook)
         reflector: The Reflector role (insight extraction)
         curator: The Curator role (playbook updates)
+        playbook: The evolving Playbook with strategies and insights
         auto_improve: Whether to automatically improve after each run
-        run_count: Total number of tasks executed
-        improvement_count: Number of improvement cycles completed
     """
 
     def __init__(
         self,
-        model: Any,
-        tools: Optional[List] = None,
+        agent: MultiStepAgent,
         playbook: Optional[Playbook] = None,
         auto_improve: bool = True,
         similarity_threshold: float = 0.85,
         prune_threshold: int = -3,
-        max_steps: int = 10,
-        verbosity_level: int = 1,
-        **agent_kwargs,
     ):
         """
-        Initialize the ACE Agent.
+        Initialize the ACE Orchestrator.
 
         Args:
-            model: The LLM model to use for all roles
-            tools: List of tools available to the agent
+            agent: Any smolagents agent (CodeAgent, ToolCallingAgent, etc.)
             playbook: Initial Playbook (creates empty one if not provided)
             auto_improve: Whether to run reflection/curation after each task
             similarity_threshold: Similarity threshold for deduplication
             prune_threshold: Score threshold for pruning harmful entries
-            max_steps: Maximum steps for agent execution
-            verbosity_level: Verbosity level for agent output
-            **agent_kwargs: Additional arguments passed to the underlying CodeAgent
         """
-        self.model = model
-        self.tools = tools or []
         self.playbook = playbook or Playbook()
         self.auto_improve = auto_improve
 
-        # Initialize the three roles
-        self.generator = ACEGenerator(
-            model=model,
-            tools=tools,
-            playbook=self.playbook,
-            max_steps=max_steps,
-            verbosity_level=verbosity_level,
-            **agent_kwargs,
-        )
-        self.reflector = ACEReflector(model=model)
+        # Initialize the three ACE roles - all orchestrate the same agent
+        self.generator = ACEGenerator(agent=agent, playbook=self.playbook)
+        self.reflector = ACEReflector(model=agent.model)
         self.curator = ACECurator(
             playbook=self.playbook,
             similarity_threshold=similarity_threshold,
@@ -129,13 +117,13 @@ class ACEAgent:
         """
         should_improve = improve if improve is not None else self.auto_improve
 
-        # 1. Generate: Execute the task
+        # 1. Generator: Execute task with playbook context
         logger.info(f"ACE Generator executing task: {task[:100]}...")
         gen_result = self.generator.run(task)
         self.run_count += 1
 
         if should_improve:
-            # 2. Reflect: Analyze the execution
+            # 2. Reflector: Analyze the execution
             logger.info("ACE Reflector analyzing execution...")
             reflection = self.reflector.reflect(gen_result)
             self._last_reflection = reflection
@@ -143,13 +131,13 @@ class ACEAgent:
             if reflection.get("parse_error"):
                 logger.warning(f"Reflection parse error: {reflection['parse_error']}")
             else:
-                # 3. Curate: Update the playbook
+                # 3. Curator: Update the playbook
                 logger.info("ACE Curator updating playbook...")
                 _, curation_stats = self.curator.curate(reflection)
                 self._last_curation_stats = curation_stats
                 self.improvement_count += 1
 
-                # 4. Rebuild Generator with updated Playbook
+                # 4. Update generator with new playbook
                 self.generator.update_playbook(self.playbook)
 
                 logger.info(
@@ -181,6 +169,11 @@ class ACEAgent:
         self.improvement_count += 1
 
         return stats
+
+    @property
+    def agent(self) -> MultiStepAgent:
+        """Access the underlying smolagents agent."""
+        return self.generator.agent
 
     def stats(self) -> dict:
         """

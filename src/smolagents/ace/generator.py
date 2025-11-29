@@ -15,107 +15,93 @@
 """
 Generator role for ACE (Agentic Context Engineering).
 
-The Generator produces reasoning trajectories for tasks using
-the current Playbook as context augmentation.
+Orchestrates task execution with any smolagents agent, injecting
+the Playbook as context and extracting reasoning trajectories.
 """
 
 import re
 from typing import Any, List, Optional
 
-from ..agents import CodeAgent
+from ..agents import MultiStepAgent
 from .playbook import Playbook
 
 
 class ACEGenerator:
     """
-    Generator: Produces reasoning trajectories for new queries.
+    Generator: Orchestrates task execution with Playbook context.
 
     The Generator role in ACE is responsible for:
-    1. Injecting the current Playbook into the system prompt
+    1. Injecting the current Playbook into any smolagents agent
     2. Executing tasks and capturing the reasoning trajectory
     3. Tracking which strategies were used during execution
 
+    Uses existing smolagents agents (CodeAgent, ToolCallingAgent) - no wrappers.
+
     Attributes:
+        agent: The smolagents agent to use for execution
         playbook: The current Playbook for context augmentation
-        agent: The underlying CodeAgent for task execution
         last_trajectory: The most recent reasoning trajectory
         last_used_strategies: Strategy IDs used in the last run
     """
 
-    DEFAULT_ACE_PROMPT = """You are an expert agent with access to proven strategies and knowledge.
-
-Follow these proven strategies and insights when solving tasks:
+    ACE_PROMPT_PREFIX = """You have access to proven strategies and knowledge from previous tasks.
 
 {playbook}
 
-When you use a strategy from the playbook, reference it by its ID (e.g., [str-00001]).
+When you use a strategy from above, reference it by its ID (e.g., [str-00001]).
 This helps track which strategies are most effective.
 
-Think step by step and apply relevant strategies from the playbook when applicable.
+---
+
 """
 
     def __init__(
         self,
-        model: Any,
-        tools: Optional[List] = None,
+        agent: MultiStepAgent,
         playbook: Optional[Playbook] = None,
-        max_steps: int = 10,
-        verbosity_level: int = 1,
-        **agent_kwargs,
     ):
         """
         Initialize the ACE Generator.
 
         Args:
-            model: The LLM model to use
-            tools: List of tools available to the agent
+            agent: Any smolagents agent (CodeAgent, ToolCallingAgent, etc.)
             playbook: Initial Playbook (creates empty one if not provided)
-            max_steps: Maximum steps for agent execution
-            verbosity_level: Verbosity level for agent output
-            **agent_kwargs: Additional arguments passed to CodeAgent
         """
+        self.agent = agent
         self.playbook = playbook or Playbook()
-        self.model = model
-        self.tools = tools or []
-        self.max_steps = max_steps
-        self.verbosity_level = verbosity_level
-        self.agent_kwargs = agent_kwargs
+
+        # Store original system prompt for playbook injection
+        self._original_prompt = getattr(agent, 'system_prompt', None)
 
         self.last_trajectory: List[dict] = []
         self.last_used_strategies: List[str] = []
 
-        self._build_agent()
+        # Inject playbook
+        self._inject_playbook()
 
-    def _build_agent(self) -> None:
-        """Build or rebuild the agent with current playbook."""
-        system_prompt = self._build_prompt()
-
-        self.agent = CodeAgent(
-            model=self.model,
-            tools=self.tools,
-            system_prompt=system_prompt,
-            max_steps=self.max_steps,
-            verbosity_level=self.verbosity_level,
-            **self.agent_kwargs,
-        )
-
-    def _build_prompt(self) -> str:
-        """Build system prompt with Playbook injection."""
+    def _inject_playbook(self) -> None:
+        """Inject current playbook into agent's system prompt."""
         playbook_content = self.playbook.render()
-        if not playbook_content.strip():
-            playbook_content = "(No strategies accumulated yet - this will grow as you complete tasks)"
 
-        return self.DEFAULT_ACE_PROMPT.format(playbook=playbook_content)
+        if playbook_content.strip():
+            prefix = self.ACE_PROMPT_PREFIX.format(playbook=playbook_content)
+        else:
+            prefix = ""
+
+        if self._original_prompt:
+            self.agent.system_prompt = prefix + self._original_prompt
+        elif prefix:
+            self.agent.system_prompt = prefix.rstrip("\n-")
 
     def update_playbook(self, playbook: Playbook) -> None:
         """
-        Update the playbook and rebuild the agent.
+        Update the playbook and re-inject into agent.
 
         Args:
             playbook: The new Playbook to use
         """
         self.playbook = playbook
-        self._build_agent()
+        self._inject_playbook()
 
     def run(self, task: str) -> dict:
         """
@@ -131,7 +117,7 @@ Think step by step and apply relevant strategies from the playbook when applicab
             - trajectory: List of reasoning steps
             - used_strategies: List of strategy IDs referenced
         """
-        # Execute the task
+        # Execute the task with the agent
         result = self.agent.run(task)
 
         # Capture trajectory from memory
@@ -159,7 +145,6 @@ Think step by step and apply relevant strategies from the playbook when applicab
                     "type": type(step).__name__,
                 }
 
-                # Extract relevant fields based on step type
                 if hasattr(step, 'model_output'):
                     step_dict["model_output"] = str(step.model_output) if step.model_output else None
                 if hasattr(step, 'tool_calls'):
@@ -195,18 +180,17 @@ Think step by step and apply relevant strategies from the playbook when applicab
         for step in trajectory:
             model_output = step.get("model_output", "")
             if model_output:
-                matches = strategy_pattern.findall(model_output)
-                for match in matches:
-                    # Reconstruct full ID from the match
-                    full_matches = re.findall(r'\[(str|cal|mis)-\d{5}\]', model_output)
-                    for full_match in full_matches:
-                        used_strategies.add(full_match.strip('[]'))
+                full_matches = strategy_pattern.findall(model_output)
+                for _ in full_matches:
+                    all_ids = re.findall(r'\[(str|cal|mis)-\d{5}\]', model_output)
+                    for match in all_ids:
+                        used_strategies.add(match.strip('[]'))
 
         return list(used_strategies)
 
-    def get_agent(self) -> CodeAgent:
-        """Get the underlying CodeAgent instance."""
+    def get_agent(self) -> MultiStepAgent:
+        """Get the underlying smolagents agent instance."""
         return self.agent
 
     def __repr__(self) -> str:
-        return f"ACEGenerator(playbook={self.playbook}, tools={len(self.tools)})"
+        return f"ACEGenerator(agent={type(self.agent).__name__}, playbook={self.playbook})"

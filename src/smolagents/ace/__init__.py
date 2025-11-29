@@ -31,13 +31,17 @@ from .ace_agent import ACEAgent
 from .tools import display_dataframe_to_user, get_ace_tools, ACE_TOOLS
 
 __all__ = [
-    "Playbook",
-    "PlaybookEntry",
-    "PlaybookSection",
+    # Core Orchestrator
+    "ACEAgent",
+    # Three Roles (each orchestrates smolagents agents)
     "ACEGenerator",
     "ACEReflector",
     "ACECurator",
-    "ACEAgent",
+    # Playbook
+    "Playbook",
+    "PlaybookEntry",
+    "PlaybookSection",
+    # Tools
     "display_dataframe_to_user",
     "get_ace_tools",
     "ACE_TOOLS",
