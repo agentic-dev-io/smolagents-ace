@@ -15,75 +15,86 @@ This script demonstrates:
 7. Statistics & introspection
 """
 
+import logging
 import os
 from smolagents import CodeAgent, ToolCallingAgent, InferenceClientModel, WebSearchTool, tool
 from smolagents.ace import ACEAgent, ACEGenerator, ACEReflector, ACECurator, Playbook
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)-8s | %(name)s | %(message)s",
+    handlers=[logging.StreamHandler()],
+)
+logger = logging.getLogger(__name__)
 
 # ============================================================
 # SETUP
 # ============================================================
 # See README_ACE.md for model options
+logger.info("Setting up model...")
 model = InferenceClientModel()
+logger.debug("Model initialized: InferenceClientModel")
 
 # ============================================================
 # 1. BASIC USAGE
 # ============================================================
-print("=" * 70)
-print("1. BASIC ACE USAGE")
-print("=" * 70)
+logger.info("=" * 70)
+logger.info("1. BASIC ACE USAGE")
+logger.info("=" * 70)
 
 # ACE wraps the agent (CodeAgent, ToolCallingAgent, or any MultiStepAgent)
 agent = CodeAgent(model=model, tools=[])
 ace = ACEAgent(agent, auto_improve=True)
 
-print(f"✓ ACEAgent created")
-print(f"  - Agent type: {type(ace.agent).__name__}")
-print(f"  - Auto-improve: {ace.auto_improve}")
-print(f"  - Playbook entries: {len(ace.playbook)}")
+logger.info(f"ACEAgent created")
+logger.debug(f"  Agent type: {type(ace.agent).__name__}")
+logger.debug(f"  Auto-improve: {ace.auto_improve}")
+logger.debug(f"  Playbook entries: {len(ace.playbook)}")
 
 # Run tasks - playbook evolves automatically
-print("\n→ Running tasks...")
+logger.info("Running tasks...")
 tasks = [
     "If I invest $1000 at 5% annual interest, how much will I have in 10 years?",
     "Calculate NPV: cash flows [100, 200, 300] at 8% discount rate",
 ]
 
 for i, task in enumerate(tasks, 1):
-    print(f"\n  Task {i}: {task[:50]}...")
+    logger.info(f"Task {i}: {task[:50]}...")
     try:
         result = ace.run(task)
-        print(f"  ✓ Result: {str(result)[:60]}...")
-        print(f"  ✓ Playbook now: {len(ace.playbook)} entries")
+        logger.debug(f"Result: {str(result)[:60]}...")
+        logger.info(f"Playbook now: {len(ace.playbook)} entries")
     except Exception as e:
-        print(f"  (Demo - playbook evolves with each task)")
+        logger.debug(f"Task demo - playbook evolves with each task", exc_info=True)
 
 # ============================================================
 # 2. PLAYBOOK PERSISTENCE
 # ============================================================
-print("\n" + "=" * 70)
-print("2. PLAYBOOK PERSISTENCE")
-print("=" * 70)
+logger.info("=" * 70)
+logger.info("2. PLAYBOOK PERSISTENCE")
+logger.info("=" * 70)
 
 # Save learned knowledge
 playbook_file = "/tmp/finance_playbook.json"
 ace.save_playbook(playbook_file)
-print(f"✓ Saved playbook")
-print(f"  - Version: {ace.playbook.version}")
-print(f"  - Entries: {len(ace.playbook)}")
+logger.info(f"Saved playbook")
+logger.debug(f"Version: {ace.playbook.version}")
+logger.debug(f"Entries: {len(ace.playbook)}")
 
 # Load into different agent type
 new_agent = ToolCallingAgent(model=model, tools=[])
 ace2 = ACEAgent.from_playbook(playbook_file, agent=new_agent)
-print(f"\n✓ Loaded into {type(ace2.agent).__name__}")
-print(f"  - Entries: {len(ace2.playbook)}")
-print("  - Knowledge is portable across agent types")
+logger.info(f"Loaded into {type(ace2.agent).__name__}")
+logger.debug(f"Entries: {len(ace2.playbook)}")
+logger.debug("Knowledge is portable across agent types")
 
 # ============================================================
 # 3. ACE AS MANAGED_AGENT
 # ============================================================
-print("\n" + "=" * 70)
-print("3. ACE AS MANAGED_AGENT")
-print("=" * 70)
+logger.info("=" * 70)
+logger.info("3. ACE AS MANAGED_AGENT")
+logger.info("=" * 70)
 
 # ACE can be a specialist in multi-agent systems
 worker = CodeAgent(model=model, tools=[])
@@ -97,32 +108,32 @@ ace_worker = ACEAgent(
 # Manager delegates to ACE worker
 manager = CodeAgent(model=model, tools=[], managed_agents=[ace_worker])
 
-print(f"✓ Multi-agent system")
-print(f"  - Manager: {type(manager).__name__}")
-print(f"  - Worker: {ace_worker.name}")
-print("  - Manager delegates → Worker learns")
+logger.info("Multi-agent system created")
+logger.debug(f"Manager: {type(manager).__name__}")
+logger.debug(f"Worker: {ace_worker.name}")
+logger.debug("Manager delegates → Worker learns")
 
 # ============================================================
 # 4. PLANNING INTEGRATION
 # ============================================================
-print("\n" + "=" * 70)
-print("4. PLANNING INTEGRATION")
-print("=" * 70)
+logger.info("=" * 70)
+logger.info("4. PLANNING INTEGRATION")
+logger.info("=" * 70)
 
 # ACE can reflect on planning steps
 planning_agent = CodeAgent(model=model, tools=[], planning_interval=3)
 ace_planner = ACEAgent(planning_agent, reflect_on_planning=True)
 
-print(f"✓ ACE with planning")
-print(f"  - Planning interval: {planning_agent.planning_interval} steps")
-print(f"  - Reflects on plans: {ace_planner.reflect_on_planning}")
+logger.info("ACE with planning created")
+logger.debug(f"Planning interval: {planning_agent.planning_interval} steps")
+logger.debug(f"Reflects on plans: {ace_planner.reflect_on_planning}")
 
 # ============================================================
 # 5. INDIVIDUAL ROLES
 # ============================================================
-print("\n" + "=" * 70)
-print("5. INDIVIDUAL ROLES")
-print("=" * 70)
+logger.info("=" * 70)
+logger.info("5. INDIVIDUAL ROLES")
+logger.info("=" * 70)
 
 # Use roles separately for custom workflows
 playbook = Playbook(name="custom", description="Step-by-step")
@@ -133,41 +144,41 @@ generator = ACEGenerator(
     playbook=playbook,
     use_step_callbacks=True,
 )
-print("✓ Generator: Execute + trajectory capture")
+logger.info("Generator: Execute + trajectory capture")
 
 # Reflector: Analyze execution
 reflector = ACEReflector(model=model)
-print("✓ Reflector: Analyze + extract insights")
+logger.info("Reflector: Analyze + extract insights")
 
 # Curator: Update playbook with dedup/pruning
 curator = ACECurator(playbook=playbook, similarity_threshold=0.85, prune_threshold=-3)
-print("✓ Curator: Deduplicate + prune + update playbook")
+logger.info("Curator: Deduplicate + prune + update playbook")
 
 # ============================================================
 # 6. STATISTICS & INTROSPECTION
 # ============================================================
-print("\n" + "=" * 70)
-print("6. STATISTICS & INTROSPECTION")
-print("=" * 70)
+logger.info("=" * 70)
+logger.info("6. STATISTICS & INTROSPECTION")
+logger.info("=" * 70)
 
-print("✓ Introspection methods:")
-print(f"  - ace.stats()")
-print(f"  - ace.show_playbook()")
-print(f"  - ace.get_last_reflection()")
-print(f"  - ace.get_last_curation_stats()")
+logger.info("Introspection methods:")
+logger.debug("  - ace.stats()")
+logger.debug("  - ace.show_playbook()")
+logger.debug("  - ace.get_last_reflection()")
+logger.debug("  - ace.get_last_curation_stats()")
 
-print(f"\nExample stats:")
-print(f"  - Runs: {ace.run_count}")
-print(f"  - Improvements: {ace.improvement_count}")
-print(f"  - Playbook entries: {len(ace.playbook)}")
-print(f"  - Version: {ace.playbook.version}")
+logger.info("Example stats:")
+logger.debug(f"Runs: {ace.run_count}")
+logger.debug(f"Improvements: {ace.improvement_count}")
+logger.debug(f"Playbook entries: {len(ace.playbook)}")
+logger.debug(f"Version: {ace.playbook.version}")
 
 # ============================================================
 # 7. SHARED PLAYBOOK - Team Learning
 # ============================================================
-print("\n" + "=" * 70)
-print("7. SHARED PLAYBOOK")
-print("=" * 70)
+logger.info("=" * 70)
+logger.info("7. SHARED PLAYBOOK")
+logger.info("=" * 70)
 
 # Multiple agents share the same playbook = team learning
 shared_playbook = Playbook(
@@ -189,19 +200,19 @@ agent2 = ACEAgent(
     auto_improve=True,
 )
 
-print(f"✓ Shared playbook: '{shared_playbook.name}'")
-print(f"  - Agent1: {agent1.name}")
-print(f"  - Agent2: {agent2.name}")
-print(f"  - Same playbook: {id(agent1.playbook) == id(agent2.playbook)}")
-print("  - Team learning enabled!")
+logger.info(f"Shared playbook: '{shared_playbook.name}'")
+logger.debug(f"Agent1: {agent1.name}")
+logger.debug(f"Agent2: {agent2.name}")
+logger.debug(f"Same playbook: {id(agent1.playbook) == id(agent2.playbook)}")
+logger.debug("Team learning enabled!")
 
 # ============================================================
 # SUMMARY
 # ============================================================
-print("\n" + "=" * 70)
-print("✨ ACE: Self-Improving Agents")
-print("=" * 70)
-print("""
+logger.info("=" * 70)
+logger.info("✨ ACE: Self-Improving Agents")
+logger.info("=" * 70)
+logger.info("""
 ACE = Generator → Reflector → Curator
 
 Benefits:
@@ -213,4 +224,4 @@ Benefits:
 
 See README_ACE.md for more details!
 """)
-print("=" * 70)
+logger.info("=" * 70)
