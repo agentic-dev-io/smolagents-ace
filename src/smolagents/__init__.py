@@ -29,3 +29,16 @@ from .remote_executors import *
 from .tools import *
 from .utils import *
 from .cli import *
+
+# ACE (Agentic Context Engineering) Module
+from .ace import (
+    ACEAgent,
+    ACEGenerator,
+    ACEReflector,
+    ACECurator,
+    Playbook,
+    PlaybookEntry,
+    PlaybookSection,
+    display_dataframe_to_user,
+    get_ace_tools,
+)
