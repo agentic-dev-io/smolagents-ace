@@ -72,6 +72,8 @@ You can even share your agent to the Hub, as a Space repository:
 agent.push_to_hub("m-ric/my_agent")
 
 # agent.from_hub("m-ric/my_agent") to load an agent from Hub
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/N4N71WOHZ3)
 ```
 
 Our library is LLM-agnostic: you could switch the example above to any inference provider.
